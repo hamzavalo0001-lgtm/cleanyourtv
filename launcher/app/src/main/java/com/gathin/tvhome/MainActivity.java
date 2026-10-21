@@ -561,8 +561,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         btnSettings.setOnKeyListener(pillKeys);
         btnReorder.setOnKeyListener(pillKeys);
         btnLibraryTop.setOnKeyListener(pillKeys);
+        View btnClean = findViewById(R.id.btnClean);
+        View btnAirScreen = findViewById(R.id.btnAirScreen);
+        btnClean.setOnClickListener(v -> freeRam());
+        btnAirScreen.setOnClickListener(v -> openAirScreen());
+        btnClean.setOnKeyListener(pillKeys);
+        btnAirScreen.setOnKeyListener(pillKeys);
         if (advancedEffects) {
-            for (View button : new View[]{btnInputs, btnWifi, btnReorder, btnLibraryTop, btnSettings}) {
+            for (View button : new View[]{btnInputs, btnWifi, btnClean, btnAirScreen, btnReorder, btnLibraryTop, btnSettings}) {
                 button.setOnFocusChangeListener((view, focused) -> view.animate()
                         .scaleX(focused ? 1.04f : 1f).scaleY(focused ? 1.04f : 1f)
                         .setDuration(160).start());
@@ -1634,7 +1640,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // Android 8 and later hide /proc/stat from apps on many TVs: then the line leaves CPU out rather than
         // showing a dash that never fills in.
         StringBuilder line = new StringBuilder();
-        if (cpu >= 0) line.append(getString(R.string.stats_cpu, cpu));
+        Weather.refreshIfDue();
+        String weather = Weather.text();
+        if (weather != null) appendStat(line, weather);
+        if (cpu >= 0) appendStat(line, getString(R.string.stats_cpu, cpu));
+        int ram = memUsedPercent();
+        if (ram >= 0) appendStat(line, String.format(Locale.US, "RAM %%%d", ram));
         long mem = memAvailableMb();
         if (mem >= 0) appendStat(line, getString(R.string.stats_memory, mem));
         String free = formatGb(Environment.getDataDirectory().getFreeSpace());
@@ -1735,6 +1746,23 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         } catch (IOException | NumberFormatException ignored) {
         }
         return -1;
+    }
+
+    /** Percent of RAM in use (MemTotal minus MemAvailable). -1 when it cannot be read. */
+    private int memUsedPercent() {
+        long total = -1, avail = -1;
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader("/proc/meminfo"))) {
+            String line;
+            while ((line = r.readLine()) != null && (total < 0 || avail < 0)) {
+                String[] t = line.split("\\s+");
+                if (t.length < 2) continue;
+                if (line.startsWith("MemTotal:")) total = Long.parseLong(t[1]);
+                else if (line.startsWith("MemAvailable:")) avail = Long.parseLong(t[1]);
+            }
+        } catch (IOException | NumberFormatException ignored) {
+        }
+        if (total <= 0 || avail < 0) return -1;
+        return (int) Math.round((total - avail) * 100.0 / total);
     }
 
     private static String readFirstLine(String path) {
@@ -2221,6 +2249,44 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         } catch (Exception e) {
             Toast.makeText(this, R.string.not_available, Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /** "Free RAM": closes the background processes of apps that have a launcher icon (YouTube, Netflix and so
+     *  on). Android starts some of them again by itself, so the gain is temporary. */
+    private void freeRam() {
+        android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        android.content.pm.PackageManager pm = getPackageManager();
+        java.util.HashSet<String> seen = new java.util.HashSet<>();
+        for (String category : new String[]{Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER}) {
+            Intent q = new Intent(Intent.ACTION_MAIN).addCategory(category);
+            for (android.content.pm.ResolveInfo ri : pm.queryIntentActivities(q, 0)) {
+                String p = ri.activityInfo.packageName;
+                if (!seen.add(p) || keepRunning(p)) continue;
+                try {
+                    am.killBackgroundProcesses(p);
+                } catch (RuntimeException ignored) {
+                }
+            }
+        }
+        Toast.makeText(this, R.string.cleaned, Toast.LENGTH_SHORT).show();
+    }
+
+    /** Never closed by Free RAM: this launcher, the AirScreen receiver, Play, and the TV's own and system apps. */
+    private boolean keepRunning(String p) {
+        return p.equals(getPackageName()) || p.equals("com.ionitech.airscreen") || p.equals("android")
+                || p.equals("com.android.vending") || p.startsWith("com.android.") || p.startsWith("org.droidtv.")
+                || p.startsWith("com.mediatek.") || p.startsWith("com.google.android.gms");
+    }
+
+    private void openAirScreen() {
+        android.content.pm.PackageManager pm = getPackageManager();
+        Intent i = pm.getLeanbackLaunchIntentForPackage("com.ionitech.airscreen");
+        if (i == null) i = pm.getLaunchIntentForPackage("com.ionitech.airscreen");
+        if (i == null) {
+            Toast.makeText(this, R.string.not_available, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        open(i);
     }
 
     private void open(Intent i) {

@@ -323,6 +323,20 @@
                     android:nextFocusDown="@+id/grid" />
 
                 <TextView
+                    android:id="@+id/btnClean"
+                    style="@style/TopButtonIcon"
+                    android:contentDescription="@string/btn_clean"
+                    android:drawableStart="@drawable/ic_memory"
+                    android:nextFocusDown="@+id/grid" />
+
+                <TextView
+                    android:id="@+id/btnAirScreen"
+                    style="@style/TopButtonIcon"
+                    android:contentDescription="@string/btn_airscreen"
+                    android:drawableStart="@drawable/ic_airplay"
+                    android:nextFocusDown="@+id/grid" />
+
+                <TextView
                     android:id="@+id/btnReorder"
                     style="@style/TopButtonIcon"
                     android:contentDescription="@string/reorder"
